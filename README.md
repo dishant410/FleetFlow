@@ -80,7 +80,8 @@ npm install
 npm run dev
 ```
 
-Frontend runs on **http://localhost:3000**, proxied to backend at **http://localhost:5000**.
+--> Frontend runs on **http://localhost:3000**
+--> proxied to backend at **http://localhost:5000**.
 
 ---
 
@@ -290,3 +291,5 @@ FleetFlow/
     │       ├── Analytics.jsx
     │       └── AdminUsers.jsx
 ```
+
+
