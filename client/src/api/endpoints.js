@@ -44,6 +44,7 @@ export const tripsAPI = {
   dispatch: (id) => api.patch(`/trips/${id}/dispatch`),
   complete: (id, data) => api.patch(`/trips/${id}/complete`, data),
   cancel: (id) => api.patch(`/trips/${id}/cancel`),
+  remove: (id) => api.delete(`/trips/${id}`),
 };
 
 // ─── Maintenance ───────────────

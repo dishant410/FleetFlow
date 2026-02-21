@@ -1,5 +1,4 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const Trip = require('../models/Trip');
 const Vehicle = require('../models/Vehicle');
 const Driver = require('../models/Driver');
@@ -176,33 +175,13 @@ router.patch(
         return res.status(400).json({ message: `Cannot dispatch trip with status "${trip.status}".` });
       }
 
-      // Use MongoDB session for transactional update
-      const session = await mongoose.startSession();
-      session.startTransaction();
+      // Sequential updates — no replica set / transaction needed
+      trip.status = 'dispatched';
+      trip.timestamps = { ...trip.timestamps, dispatchedAt: new Date() };
+      await trip.save();
 
-      try {
-        // Update trip
-        trip.status = 'dispatched';
-        trip.timestamps.dispatchedAt = new Date();
-        await trip.save({ session });
-
-        // Update vehicle status to 'on_trip'
-        await Vehicle.findByIdAndUpdate(trip.vehicle, { status: 'on_trip' }, { session });
-
-        // Update driver status to 'on_duty' and assign vehicle
-        await Driver.findByIdAndUpdate(
-          trip.driver,
-          { status: 'on_duty', assignedVehicle: trip.vehicle },
-          { session }
-        );
-
-        await session.commitTransaction();
-        session.endSession();
-      } catch (txErr) {
-        await session.abortTransaction();
-        session.endSession();
-        throw txErr;
-      }
+      await Vehicle.findByIdAndUpdate(trip.vehicle, { status: 'on_trip' });
+      await Driver.findByIdAndUpdate(trip.driver, { status: 'on_duty', assignedVehicle: trip.vehicle });
 
       const populatedTrip = await Trip.findById(trip._id)
         .populate('vehicle')
@@ -257,53 +236,24 @@ router.patch(
         return res.status(400).json({ message: 'End odometer cannot be less than start odometer.' });
       }
 
-      const session = await mongoose.startSession();
-      session.startTransaction();
+      // Sequential updates — no replica set / transaction needed
+      trip.status = 'completed';
+      trip.timestamps = { ...trip.timestamps, completedAt: new Date() };
+      trip.endOdometer = endOdometer;
+      await trip.save();
 
-      try {
-        // Update trip
-        trip.status = 'completed';
-        trip.timestamps.completedAt = new Date();
-        trip.endOdometer = endOdometer;
-        await trip.save({ session });
+      await Vehicle.findByIdAndUpdate(trip.vehicle, { odometerKm: endOdometer, status: 'available' });
+      await Driver.findByIdAndUpdate(trip.driver, { status: 'off_duty', assignedVehicle: null });
 
-        // Update vehicle: set odometer, status = available
-        await Vehicle.findByIdAndUpdate(
-          trip.vehicle,
-          { odometerKm: endOdometer, status: 'available' },
-          { session }
-        );
-
-        // Update driver: off_duty, clear assigned vehicle
-        await Driver.findByIdAndUpdate(
-          trip.driver,
-          { status: 'off_duty', assignedVehicle: null },
-          { session }
-        );
-
-        // Create fuel expense if fuel data provided
-        if (fuelLiters > 0 || fuelCost > 0) {
-          await FuelExpense.create(
-            [
-              {
-                vehicle: trip.vehicle,
-                liters: fuelLiters || 0,
-                cost: fuelCost || 0,
-                date: new Date(),
-                trip: trip._id,
-                createdBy: req.user._id,
-              },
-            ],
-            { session }
-          );
-        }
-
-        await session.commitTransaction();
-        session.endSession();
-      } catch (txErr) {
-        await session.abortTransaction();
-        session.endSession();
-        throw txErr;
+      if (fuelLiters > 0 || fuelCost > 0) {
+        await FuelExpense.create({
+          vehicle: trip.vehicle,
+          liters: fuelLiters || 0,
+          cost: fuelCost || 0,
+          date: new Date(),
+          trip: trip._id,
+          createdBy: req.user._id,
+        });
       }
 
       const populatedTrip = await Trip.findById(trip._id)
@@ -346,32 +296,16 @@ router.patch(
         return res.status(400).json({ message: `Cannot cancel trip with status "${trip.status}".` });
       }
 
-      const session = await mongoose.startSession();
-      session.startTransaction();
+      const wasDispatched = trip.status === 'dispatched';
 
-      try {
-        const wasDispatched = trip.status === 'dispatched';
+      trip.status = 'cancelled';
+      trip.timestamps = { ...trip.timestamps, cancelledAt: new Date() };
+      await trip.save();
 
-        trip.status = 'cancelled';
-        trip.timestamps.cancelledAt = new Date();
-        await trip.save({ session });
-
-        // If was dispatched, restore vehicle and driver
-        if (wasDispatched) {
-          await Vehicle.findByIdAndUpdate(trip.vehicle, { status: 'available' }, { session });
-          await Driver.findByIdAndUpdate(
-            trip.driver,
-            { status: 'off_duty', assignedVehicle: null },
-            { session }
-          );
-        }
-
-        await session.commitTransaction();
-        session.endSession();
-      } catch (txErr) {
-        await session.abortTransaction();
-        session.endSession();
-        throw txErr;
+      // If was dispatched, restore vehicle and driver
+      if (wasDispatched) {
+        await Vehicle.findByIdAndUpdate(trip.vehicle, { status: 'available' });
+        await Driver.findByIdAndUpdate(trip.driver, { status: 'off_duty', assignedVehicle: null });
       }
 
       const populatedTrip = await Trip.findById(trip._id)
@@ -389,6 +323,29 @@ router.patch(
       });
 
       res.json({ trip: populatedTrip });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * DELETE /api/trips/:id — Delete a draft or cancelled trip
+ */
+router.delete(
+  '/:id',
+  authorize(['manager', 'dispatcher']),
+  async (req, res, next) => {
+    try {
+      const trip = await Trip.findById(req.params.id);
+      if (!trip) return res.status(404).json({ message: 'Trip not found.' });
+      if (trip.status === 'dispatched') {
+        return res.status(400).json({ message: 'Cannot delete a dispatched trip. Cancel it first.' });
+      }
+      await Trip.findByIdAndDelete(req.params.id);
+      const io = req.app.get('io');
+      if (io) io.emit('trip:deleted', { tripId: req.params.id });
+      res.json({ message: 'Trip deleted.' });
     } catch (err) {
       next(err);
     }

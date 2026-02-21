@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PlusIcon, ArrowDownTrayIcon, PaperAirplaneIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, ArrowDownTrayIcon, PaperAirplaneIcon, CheckCircleIcon, XCircleIcon, TrashIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import StatusPill from '../components/ui/StatusPill';
 import Pagination from '../components/ui/Pagination';
@@ -20,6 +20,7 @@ export default function Trips() {
   const [modalOpen, setModalOpen] = useState(false);
   const [completeModalOpen, setCompleteModalOpen] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [completeForm, setCompleteForm] = useState({ endOdometer: '', fuelLiters: '', fuelCost: '' });
   const [completeTripId, setCompleteTripId] = useState(null);
@@ -140,6 +141,19 @@ export default function Trips() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await tripsAPI.remove(deleteConfirm._id);
+      toast.success('Trip deleted.');
+      refresh();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete');
+    } finally {
+      setDeleteConfirm(null);
+    }
+  };
+
   const handleDispatch = async (tripId) => {
     try {
       await tripsAPI.dispatch(tripId);
@@ -237,6 +251,11 @@ export default function Trips() {
                         {(t.status === 'draft' || t.status === 'dispatched') && (
                           <button onClick={() => setCancelConfirm(t)} className="text-xs text-red-600 hover:underline flex items-center gap-0.5 ml-1">
                             <XCircleIcon className="h-3.5 w-3.5" /> Cancel
+                          </button>
+                        )}
+                        {(t.status === 'draft' || t.status === 'cancelled') && (
+                          <button onClick={() => setDeleteConfirm(t)} className="text-xs text-gray-500 hover:text-red-700 hover:underline flex items-center gap-0.5 ml-1">
+                            <TrashIcon className="h-3.5 w-3.5" /> Delete
                           </button>
                         )}
                       </div>
@@ -362,6 +381,17 @@ export default function Trips() {
         title="Cancel Trip"
         message={`Cancel trip ${cancelConfirm?.referenceId}? This will restore vehicle and driver availability.`}
         confirmLabel="Cancel Trip"
+        danger
+      />
+
+      {/* Delete Confirm */}
+      <ConfirmDialog
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDelete}
+        title="Delete Trip"
+        message={`Permanently delete trip ${deleteConfirm?.referenceId}? This cannot be undone.`}
+        confirmLabel="Delete"
         danger
       />
     </div>
