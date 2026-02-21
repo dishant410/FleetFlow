@@ -113,10 +113,6 @@ export default function Login() {
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <p className="text-xs font-medium text-gray-500 mb-2">Demo Credentials:</p>
             <div className="space-y-1 text-xs text-gray-600">
-              <p><span className="font-medium">Manager:</span> manager@fleetflow.com / password123</p>
-              <p><span className="font-medium">Dispatcher:</span> dispatcher@fleetflow.com / password123</p>
-              <p><span className="font-medium">Safety:</span> safety@fleetflow.com / password123</p>
-              <p><span className="font-medium">Finance:</span> finance@fleetflow.com / password123</p>
             </div>
           </div>
         </div>
